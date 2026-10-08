@@ -1,0 +1,302 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useI18n, useToast } from "@/components/providers";
+import { Mark } from "@/components/shell";
+
+type Mode = "login" | "register";
+
+type TelegramWindow = { onTelegramAuth?: (user: Record<string, unknown>) => void };
+
+function FormInner() {
+  const { t } = useI18n();
+  const { toast } = useToast();
+  const router = useRouter();
+  const params = useSearchParams();
+  const [mode, setMode] = useState<Mode>("login");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    email: "",
+    password: "",
+    name: "",
+    city: "Pune",
+    telegramHandle: "",
+  });
+
+  const next = params.get("next") || "/";
+  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+  const tgRef = useRef<HTMLDivElement>(null);
+
+  async function telegram(payload: Record<string, unknown>) {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "telegram", payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("common.error"));
+      toast(`Signed in as @${data.user.telegramHandle ?? data.user.name}`, "ok");
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : t("common.error"), "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // The widget calls this global with the signed user object.
+  useEffect(() => {
+    const w = window as unknown as TelegramWindow;
+    w.onTelegramAuth = (user) => void telegram(user);
+    return () => {
+      delete w.onTelegramAuth;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Telegram Login Widget. Needs HTTPS + the domain registered with @BotFather
+  // via /setdomain, so it renders nothing on http://localhost.
+  useEffect(() => {
+    if (!botUsername || !tgRef.current) return;
+    const container = tgRef.current;
+    container.innerHTML = "";
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.async = true;
+    script.setAttribute("data-telegram-login", botUsername);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+    container.appendChild(script);
+    return () => {
+      container.innerHTML = "";
+    };
+  }, [botUsername]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: mode, ...form }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("common.error"));
+      toast(
+        mode === "login" ? `Welcome back, ${data.user.name}` : "Account created. Now verify your Telegram.",
+        "ok",
+      );
+      router.push(
+        mode === "register" ? "/settings" : data.user.role === "admin" ? "/services" : next,
+      );
+      router.refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : t("common.error"), "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function demo(role: "merchant" | "admin") {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "login",
+          email: role === "admin" ? "admin@isitdown.in" : "merchant@isitdown.in",
+          password: role === "admin" ? "admin123" : "merchant123",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("common.error"));
+      toast(`${data.user.name} signed in`, "ok");
+      router.push(role === "admin" ? "/services" : "/");
+      router.refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : t("common.error"), "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field =
+    "w-full border border-rule bg-card px-3 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-3 focus:border-navy";
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center gap-2.5">
+        <Mark size={30} />
+        <div>
+          <div className="text-[13px] font-semibold">{t("app.name")}</div>
+          <div className="micro !text-[9px]">{t("app.tag")}</div>
+        </div>
+      </div>
+
+      <h1 className="display text-[clamp(1.7rem,4vw,2.3rem)] leading-tight">
+        {t("auth.title")}
+      </h1>
+      <p className="mt-2 text-sm text-ink-2">{t("auth.sub")}</p>
+
+      <div className="mt-5 grid grid-cols-2 gap-px border border-rule bg-rule">
+        {(["login", "register"] as Mode[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`py-2.5 font-mono text-[11px] tracking-[0.14em] uppercase transition-colors ${
+              mode === m ? "bg-board text-paper" : "bg-card text-ink-2 hover:text-ink"
+            }`}
+          >
+            {m === "login" ? t("auth.signIn") : t("auth.register")}
+          </button>
+        ))}
+      </div>
+
+      <form onSubmit={submit} className="mt-5 space-y-3">
+        {mode === "register" && (
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="micro mb-1 block">{t("auth.name")}</span>
+              <input
+                required
+                className={field}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Aarti Kulkarni"
+              />
+            </label>
+            <label className="block">
+              <span className="micro mb-1 block">{t("auth.city")}</span>
+              <input
+                required
+                className={field}
+                value={form.city}
+                onChange={(e) => setForm({ ...form, city: e.target.value })}
+                placeholder="Dhule"
+              />
+            </label>
+          </div>
+        )}
+        {mode === "register" && (
+          <label className="block">
+            <span className="micro mb-1 block">Telegram username</span>
+            <input
+              required
+              className={field}
+              value={form.telegramHandle}
+              onChange={(e) => setForm({ ...form, telegramHandle: e.target.value })}
+              placeholder="@vaibhav_godse"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+            <span className="mt-1 block text-[11px] leading-relaxed text-ink-3">
+              You verify it by pressing START in our bot right after sign-up.
+            </span>
+          </label>
+        )}
+        <label className="block">
+          <span className="micro mb-1 block">{t("auth.email")}</span>
+          <input
+            required
+            type="email"
+            autoComplete="email"
+            className={field}
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            placeholder="you@shop.in"
+          />
+        </label>
+        <label className="block">
+          <span className="micro mb-1 block">{t("auth.password")}</span>
+          <input
+            required
+            type="password"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            className={field}
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            placeholder="••••••••"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full bg-navy px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-navy-2 disabled:opacity-60"
+        >
+          {busy ? t("common.loading") : mode === "login" ? t("auth.signIn") : t("auth.register")}
+        </button>
+      </form>
+
+      <div className="my-5 flex items-center gap-3">
+        <span className="h-px flex-1 bg-rule" />
+        <span className="micro">or</span>
+        <span className="h-px flex-1 bg-rule" />
+      </div>
+
+      <div className="flex min-h-[40px] justify-center" ref={tgRef} />
+      {botUsername ? (
+        <p className="mt-2 text-center text-[11px] text-ink-3">{t("auth.telegramNote")}</p>
+      ) : (
+        <p className="mt-2 text-center text-[11px] text-ink-3">
+          Telegram login is not configured on this deployment — set{" "}
+          <code className="font-mono">NEXT_PUBLIC_TELEGRAM_BOT_USERNAME</code>.
+        </p>
+      )}
+
+      <div className="mt-6 border border-dashed border-rule bg-card p-3">
+        <div className="micro mb-2">Demo accounts</div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => demo("merchant")}
+            disabled={busy}
+            className="border border-rule bg-paper px-2 py-2 text-xs font-medium hover:border-ink/40 disabled:opacity-60"
+          >
+            {t("auth.merchantDemo")}
+            <span className="mt-0.5 block font-mono text-[10px] font-normal text-ink-3">
+              merchant@isitdown.in
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => demo("admin")}
+            disabled={busy}
+            className="border border-rule bg-paper px-2 py-2 text-xs font-medium hover:border-ink/40 disabled:opacity-60"
+          >
+            {t("auth.adminDemo")}
+            <span className="mt-0.5 block font-mono text-[10px] font-normal text-ink-3">
+              admin@isitdown.in
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <p className="mt-5 text-center text-xs text-ink-2">
+        <Link
+          href="/"
+          className="underline decoration-rule underline-offset-4 hover:text-navy"
+        >
+          {t("common.back")}
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+export function LoginForm() {
+  return (
+    <Suspense fallback={<div className="skeleton h-96 w-full rounded-sm" />}>
+      <FormInner />
+    </Suspense>
+  );
+}

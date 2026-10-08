@@ -1,0 +1,140 @@
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { isLocale, type Locale } from "@/lib/i18n";
+
+const SESSION_COOKIE = "iid_session";
+const SESSION_DAYS = 7;
+
+export type SessionUser = {
+  id: number;
+  email: string;
+  name: string;
+  role: "merchant" | "admin";
+  city: string;
+  locale: Locale;
+  telegramHandle: string | null;
+  telegramId: string | null;
+};
+
+function secret(): string {
+  return process.env.AUTH_SECRET || "dev-only-insecure-secret-change-me";
+}
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const derived = scryptSync(password, salt, 64).toString("hex");
+  return `s2$${salt}$${derived}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  try {
+    const [scheme, salt, hash] = stored.split("$");
+    if (scheme !== "s2" || !salt || !hash) return false;
+    const derived = scryptSync(password, salt, 64);
+    const expected = Buffer.from(hash, "hex");
+    return expected.length === derived.length && timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+function sign(payload: string): string {
+  return createHmac("sha256", secret()).update(payload).digest("base64url");
+}
+
+/**
+ * Stateless deep-link token used to bind a Telegram chat to a user account:
+ * t.me/<bot>?start=<token>  →  webhook verifies and stores the chat_id.
+ * Avoids a migration for one-shot tokens; expires in LINK_TTL_DAYS.
+ */
+const LINK_TTL_DAYS = 30;
+
+export function encodeTelegramLinkToken(userId: number): string {
+  // Telegram only allows [A-Za-z0-9_-] (max 64 chars) in ?start= payloads,
+  // so use "_" separators and a short hex signature (no dots, no base64).
+  const exp = Date.now() + LINK_TTL_DAYS * 86400_000;
+  const payload = `link_${userId}_${exp}`;
+  return `${payload}_${linkSig(payload)}`;
+}
+
+function linkSig(payload: string): string {
+  return createHmac("sha256", secret()).update(payload).digest("hex").slice(0, 32);
+}
+
+export function decodeTelegramLinkToken(token: string | undefined): number | null {
+  if (!token) return null;
+  const parts = token.split("_");
+  if (parts.length !== 4 || parts[0] !== "link") return null;
+  const [, idRaw, expRaw, sig] = parts;
+  const payload = `link_${idRaw}_${expRaw}`;
+  if (linkSig(payload) !== sig) return null;
+  if (Number(expRaw) < Date.now()) return null;
+  const id = Number(idRaw);
+  return Number.isFinite(id) ? id : null;
+}
+
+export function encodeSession(userId: number): string {
+  const payload = `${userId}.${Date.now() + SESSION_DAYS * 86400_000}`;
+  return `${payload}.${sign(payload)}`;
+}
+
+export function decodeSession(token: string | undefined): number | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [idRaw, expRaw, sig] = parts;
+  const payload = `${idRaw}.${expRaw}`;
+  if (sign(payload) !== sig) return null;
+  if (Number(expRaw) < Date.now()) return null;
+  const id = Number(idRaw);
+  return Number.isFinite(id) ? id : null;
+}
+
+export async function getSessionUser(): Promise<SessionUser | null> {
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value;
+  const id = decodeSession(token);
+  if (id === null) return null;
+  const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  const u = rows[0];
+  if (!u) return null;
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    city: u.city,
+    locale: isLocale(u.locale) ? u.locale : "en",
+    telegramHandle: u.telegramHandle,
+    telegramId: u.telegramId,
+  };
+}
+
+export async function setSession(userId: number): Promise<void> {
+  const jar = await cookies();
+  jar.set(SESSION_COOKIE, encodeSession(userId), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_DAYS * 86400,
+  });
+}
+
+export async function clearSession(): Promise<void> {
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+}
+
+export const LOCALE_COOKIE = "iid_locale";
+
+export async function readLocale(): Promise<Locale> {
+  const jar = await cookies();
+  const fromCookie = jar.get(LOCALE_COOKIE)?.value;
+  if (isLocale(fromCookie)) return fromCookie;
+  const user = await getSessionUser();
+  if (user) return user.locale;
+  return "en";
+}

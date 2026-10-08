@@ -1,0 +1,290 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useI18n, useToast } from "@/components/providers";
+import { Lamp, Pill } from "@/components/ui";
+import { LOCALES, LOCALE_LABEL } from "@/lib/i18n";
+import { ist, type Aspect } from "@/lib/status";
+
+type Sub = {
+  id: number;
+  service: string;
+  channel: string;
+  active: boolean;
+  aspect: Aspect;
+};
+type Alert = {
+  id: number;
+  title: string;
+  body: string;
+  severity: Aspect;
+  state: string;
+  channel: string;
+  target: string;
+  createdAt: string;
+  service: string;
+};
+
+export function SettingsView({
+  user,
+  subs,
+  alerts,
+}: {
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    city: string;
+    role: string;
+    locale: string;
+    telegramHandle: string | null;
+    telegramId: string | null;
+    phone: string | null;
+  };
+  subs: Sub[];
+  alerts: Alert[];
+}) {
+  const { locale, setLocale, t } = useI18n();
+  const { toast } = useToast();
+  const router = useRouter();
+  const [form, setForm] = useState({
+    name: user.name,
+    city: user.city,
+    telegramHandle: user.telegramHandle ?? "",
+    phone: user.phone ?? "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [tgBusy, setTgBusy] = useState(false);
+
+  const field =
+    "w-full border border-rule bg-card px-3 py-2.5 text-sm outline-none focus:border-navy";
+
+  /** Opens the t.me deep link that binds this account's chat to the bot. */
+  async function connectTelegram() {
+    setTgBusy(true);
+    try {
+      const res = await fetch("/api/telegram/link");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("common.error"));
+      window.open(data.url, "_blank", "noopener,noreferrer");
+      toast("Press START in the Telegram chat that just opened", "info");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : t("common.error"), "bad");
+    } finally {
+      setTgBusy(false);
+    }
+  }
+
+  async function disconnectTelegram() {
+    setTgBusy(true);
+    try {
+      const res = await fetch("/api/telegram/link", { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast("Telegram disconnected", "info");
+      router.refresh();
+    } catch {
+      toast(t("common.error"), "bad");
+    } finally {
+      setTgBusy(false);
+    }
+  }
+
+  async function sendTest() {
+    setTgBusy(true);
+    try {
+      const res = await fetch("/api/telegram/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("common.error"));
+      toast("Test message sent — check your Telegram chat", "ok");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : t("common.error"), "bad");
+    } finally {
+      setTgBusy(false);
+    }
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "update", ...form }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("common.error"));
+      toast(t("settings.saved"), "ok");
+      router.refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : t("common.error"), "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/");
+    router.refresh();
+  }
+
+  return (
+    <div className="space-y-5">
+      <header className="border-b border-rule pb-4">
+        <div className="micro">Yours</div>
+        <h1 className="display mt-1 text-[clamp(1.6rem,4vw,2.4rem)]">{t("settings.title")}</h1>
+        <p className="mt-1.5 max-w-[62ch] text-sm text-ink-2">{t("settings.lede")}</p>
+      </header>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className="paper-card p-4 sm:p-5">
+          <div className="micro">{t("settings.account")}</div>
+          <div className="mt-3 flex items-center gap-3">
+            <span className="grid h-11 w-11 place-items-center bg-board font-mono text-sm font-bold text-saffron">
+              {user.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">{user.email}</div>
+              <div className="mt-1 flex gap-2">
+                <Pill tone={user.role === "admin" ? "danger" : "navy"}>
+                  {user.role === "admin" ? t("auth.roleAdmin") : t("auth.roleMerchant")}
+                </Pill>
+                <Pill tone="neutral">{subs.filter((s) => s.active).length} subs</Pill>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={save} className="mt-4 space-y-3">
+            <label className="block">
+              <span className="micro mb-1 block">{t("auth.name")}</span>
+              <input className={field} value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </label>
+            <label className="block">
+              <span className="micro mb-1 block">{t("auth.city")}</span>
+              <input className={field} value={form.city}
+                onChange={(e) => setForm({ ...form, city: e.target.value })} />
+            </label>
+            <label className="block">
+              <span className="micro mb-1 block">Telegram handle</span>
+              <input className={field} value={form.telegramHandle}
+                placeholder="rukmini_desai"
+                onChange={(e) => setForm({ ...form, telegramHandle: e.target.value })} />
+            </label>
+            <label className="block">
+              <span className="micro mb-1 block">
+                WhatsApp number <span className="lowercase">({t("common.optional")})</span>
+              </span>
+              <input className={field} value={form.phone}
+                placeholder="9198xxxxxxxx" inputMode="tel"
+                onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            </label>
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy}
+                className="bg-navy px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-60">
+                {busy ? t("common.loading") : t("common.save")}
+              </button>
+              <button type="button" onClick={() => void signOut()}
+                className="border border-rule bg-card px-4 py-2.5 text-xs hover:border-ink/40">
+                {t("top.signOut")}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section className="paper-card p-4 sm:p-5">
+          <div className="micro">{t("settings.language")}</div>
+          <p className="mt-2 text-xs leading-relaxed text-ink-2">{t("settings.languageNote")}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {LOCALES.map((l) => (
+              <button key={l} type="button"
+                onClick={() => { setLocale(l); toast(`${t("settings.language")}: ${LOCALE_LABEL[l]}`, "ok"); }}
+                className={`flex items-center justify-between border px-3 py-3 text-sm transition-colors ${
+                  l === locale ? "border-ink bg-board text-paper" : "border-rule bg-card hover:border-ink/40"
+                }`}>
+                <span>{LOCALE_LABEL[l]}</span>
+                <span className="micro">{l.toUpperCase()}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 border-t border-rule pt-4">
+            <div className="micro">{t("settings.telegram")}</div>
+            <div className="mt-2 flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#123A6B" aria-hidden="true">
+                <path d="M21.9 4.3 18.6 20c-.2 1.1-.9 1.3-1.8.8l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1L18 5.4c.4-.3-.1-.5-.6-.2L6.7 12.1l-4.9-1.5c-1.1-.3-1.1-1 .2-1.5l19.2-7.4c.9-.3 1.7.2 1.4 1.6z" />
+              </svg>
+              <span className="text-sm">
+                {user.telegramId
+                  ? `Linked · chat ${user.telegramId}`
+                  : user.telegramHandle
+                    ? t("settings.telegramConnected", { h: user.telegramHandle })
+                    : t("settings.telegramNot")}
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {!user.telegramId ? (
+                <button type="button" onClick={() => void connectTelegram()} disabled={tgBusy}
+                  className="bg-navy px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
+                  {tgBusy ? t("common.loading") : t("settings.telegramConnect")}
+                </button>
+              ) : (
+                <>
+                  <button type="button" onClick={() => void sendTest()} disabled={tgBusy}
+                    className="border border-up/40 bg-up/10 px-3 py-2 text-xs font-medium text-[#0E6B41] disabled:opacity-60">
+                    Send test alert
+                  </button>
+                  <button type="button" onClick={() => void disconnectTelegram()} disabled={tgBusy}
+                    className="border border-rule bg-card px-3 py-2 text-xs disabled:opacity-60">
+                    Disconnect
+                  </button>
+                </>
+              )}
+            </div>
+
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+              {user.telegramId
+                ? "Alerts are delivered live. Subscriptions on /subscriptions choose which services and severity reach this chat."
+                : "Press Connect, then START in the Telegram chat. Telegram will not let a bot message a chat that has never opened it."}
+            </p>
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+              {t("settings.alertLogNote")}
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <section className="paper-card">
+        <div className="flex items-center justify-between border-b border-rule px-4 py-3">
+          <div className="micro">{t("settings.alertLog")}</div>
+          <span className="micro">{alerts.length} rows</span>
+        </div>
+        {alerts.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-ink-2">{t("settings.alertEmpty")}</p>
+        ) : (
+          <div className="divide-y divide-[color:var(--color-rule)]">
+            {alerts.map((a) => (
+              <div key={a.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
+                <Lamp aspect={a.severity} size={17} />
+                <div className="min-w-0 flex-1 basis-[220px]">
+                  <div className="text-sm font-medium">{a.title}</div>
+                  <div className="mt-0.5 text-[13px] text-ink-2">{a.body}</div>
+                  <div className="micro mt-1.5">{a.service} · {a.target}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Pill tone={a.state === "sent" ? "up" : a.state === "failed" ? "danger" : "caution"}>
+                    {a.state}
+                  </Pill>
+                  <span className="tnum text-[11px] text-ink-3">{ist(new Date(a.createdAt))}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
