@@ -14,7 +14,7 @@ env:
 
 jobs:
   test:
-    name: Run tests
+    name: Typecheck and lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +22,8 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
 
   build-and-deploy:
     name: Build, push to ECR, deploy to Elastic Beanstalk
