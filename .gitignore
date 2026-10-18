@@ -13,3 +13,5 @@ ngrok.tgz
 *.tsbuildinfo
 output.pdf
 *.bak
+.env.backup
+.env.*.backup
