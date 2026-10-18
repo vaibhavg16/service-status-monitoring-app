@@ -86,7 +86,6 @@ jobs:
       # cosmetic warning, so the step below is set to continue-on-error.
       - name: Deploy to Elastic Beanstalk
         uses: einaregilsson/beanstalk-deploy@v22
-        continue-on-error: true
         with:
           aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -95,5 +94,5 @@ jobs:
           version_label: ${{ github.sha }}
           region: ${{ env.AWS_REGION }}
           deployment_package: deploy.zip
-          wait_for_environment_recovery: 120
+          wait_for_deployment: false
           use_existing_version_if_available: true
