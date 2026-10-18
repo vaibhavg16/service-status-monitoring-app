@@ -1,0 +1,24 @@
+# Copy this file to terraform.tfvars (which is gitignored) and fill in real
+# values. NEVER commit terraform.tfvars or any .tfstate file.
+
+aws_region   = "ap-south-1"
+project_name = "isitdown-india"
+
+db_master_username = "postgres"
+db_master_password = "ReplaceWithARealPassword123"
+db_name             = "app_db"
+
+# Run `curl -4 ifconfig.me` to get this. Update it and re-run
+# `terraform apply` whenever your IP changes.
+my_ip_cidr = "152.59.57.76/32"
+
+app_env_vars = {
+  AUTH_SECRET                       = "replace-with-openssl-rand-hex-32-output"
+  PROBE_INTERVAL_MS                 = "30000"
+  TELEGRAM_BOT_TOKEN                = "replace-with-real-token"
+  NEXT_PUBLIC_TELEGRAM_BOT_USERNAME = "IsitDownIndiaBot"
+  TELEGRAM_WEBHOOK_SECRET           = "replace-with-openssl-rand-hex-16-output"
+  RESEND_API_KEY                    = "replace-with-real-key"
+  EMAIL_FROM                        = "Is It Down India <onboarding@resend.dev>"
+  CRON_SECRET                       = "replace-with-openssl-rand-hex-16-output"
+}

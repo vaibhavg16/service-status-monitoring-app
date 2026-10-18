@@ -11,3 +11,5 @@ coverage
 ngrok.tgz
 .DS_Store
 *.tsbuildinfo
+output.pdf
+*.bak
