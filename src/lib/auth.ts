@@ -52,24 +52,47 @@ function sign(payload: string): string {
  * Stateless deep-link token used to bind a Telegram chat to a user account:
  * t.me/<bot>?start=<token>  →  webhook verifies and stores the chat_id.
  * Avoids a migration for one-shot tokens; expires in LINK_TTL_DAYS.
+ *
+ * IMPORTANT: Telegram's /start deep-link parameter may ONLY contain
+ * A-Z, a-z, 0-9, underscore (_) and hyphen (-) — no dots — and is capped
+ * at 64 characters (https://core.telegram.org/bots/features#deep-linking).
+ * This token is built from fixed-width hex fields (no separators) plus a
+ * truncated, base64url-encoded HMAC, giving a 39-character token that is
+ * fully legal for Telegram and still cryptographically authenticated.
  */
 const LINK_TTL_DAYS = 30;
 
+function toHex(n: number, width: number): string {
+  return n.toString(16).padStart(width, "0");
+}
+
+// Truncate the HMAC-SHA256 digest to 15 raw bytes (120 bits) before
+// base64url-encoding. 120 bits of authentication is more than enough for a
+// short-lived (30-day), low-value link token, and keeps the final encoded
+// token short enough to stay well under Telegram's 64-character limit.
+function signShort(payload: string): string {
+  const full = createHmac("sha256", secret()).update(payload).digest();
+  return full.subarray(0, 15).toString("base64url"); // 15 bytes -> 20 chars
+}
+
 export function encodeTelegramLinkToken(userId: number): string {
   const exp = Date.now() + LINK_TTL_DAYS * 86400_000;
-  const payload = `link.${userId}.${exp}`;
-  return `${payload}.${sign(payload)}`;
+  const idHex = toHex(userId, 8); // supports user IDs up to ~4.29 billion
+  const expHex = toHex(exp, 11); // supports timestamps up to roughly year 2527
+  const sig = signShort(`${idHex}.${expHex}`);
+  return `${idHex}${expHex}${sig}`; // 8 + 11 + 20 = 39 chars, Telegram-legal
 }
 
 export function decodeTelegramLinkToken(token: string | undefined): number | null {
-  if (!token) return null;
-  const parts = token.split(".");
-  if (parts.length !== 4 || parts[0] !== "link") return null;
-  const [, idRaw, expRaw, sig] = parts;
-  const payload = `link.${idRaw}.${expRaw}`;
-  if (sign(payload) !== sig) return null;
-  if (Number(expRaw) < Date.now()) return null;
-  const id = Number(idRaw);
+  if (!token || token.length !== 39) return null;
+  const idHex = token.slice(0, 8);
+  const expHex = token.slice(8, 19);
+  const sig = token.slice(19);
+  const expected = signShort(`${idHex}.${expHex}`);
+  if (expected !== sig) return null;
+  const exp = parseInt(expHex, 16);
+  if (!Number.isFinite(exp) || exp < Date.now()) return null;
+  const id = parseInt(idHex, 16);
   return Number.isFinite(id) ? id : null;
 }
 
@@ -138,3 +161,4 @@ export async function readLocale(): Promise<Locale> {
   if (user) return user.locale;
   return "en";
 }
+
