@@ -62,9 +62,9 @@ resource "aws_elastic_beanstalk_environment" "app" {
   setting {
     namespace = "aws:elasticbeanstalk:environment"
     name      = "ServiceRole"
-    value     = data.aws_iam_role.eb_service_role.name
+    value     = data.aws_iam_role.eb_service_role.arn
   }
-
+  
   setting {
     namespace = "aws:autoscaling:launchconfiguration"
     name      = "IamInstanceProfile"

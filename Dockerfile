@@ -22,7 +22,13 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
+# NEXT_PUBLIC_* variables are inlined into the browser JS bundle at BUILD
+# TIME by Next.js — setting them later as a container/Beanstalk runtime env
+# var has zero effect on an already-built bundle. This ARG lets the build
+# receive the real value from `docker build --build-arg ...` (passed by
+# docker-compose.yml locally, and by the CI workflow in production).
+ARG NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
+ENV NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=$NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
 # Provide a dummy database URL so build-time checks/imports don't fail 
 # (Real runtime credentials are injected via environment variables at runtime)
 ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/app_db"
