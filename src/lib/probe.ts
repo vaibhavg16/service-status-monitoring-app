@@ -1,3 +1,4 @@
+import { recordProbeResult } from "@/lib/metrics";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { incidentEvents, incidents, probeResults, services } from "@/db/schema";
@@ -5,7 +6,6 @@ import { cache, STATUS_CACHE_KEY } from "@/lib/cache";
 import { readForced, type ForcedMap } from "@/lib/queries";
 import { probeAspect, type Aspect } from "@/lib/status";
 import { enqueueAlerts, enqueueRecoveryAlerts } from "@/lib/alerts";
-
 export type ProbeOutcome = {
   slug: string;
   latencyMs: number;
@@ -141,6 +141,7 @@ export async function runProbeCycle(): Promise<{
       detail: out.detail,
       source: out.source,
     });
+    recordProbeResult(service.slug, status, out.latencyMs);
   }
 
   if (inserted.length) {
