@@ -13,7 +13,7 @@ import { notifyTelegramIfLinked } from "@/lib/telegram-bot";
  * (Phone/WhatsApp OTP verification was removed — the WhatsApp Cloud API
  * sandbox account it depended on was locked by Meta and isn't reliable for
  * this app. Verification is now email + Telegram only; see
- * PRODUCTION-VERIFICATION-SETUP.md.)
+ * SETUP.md section-9)
  *
  * Mirrors the single-route/action-switch style already used by
  * src/app/api/auth/route.ts and src/app/api/telegram/link/route.ts.

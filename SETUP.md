@@ -259,10 +259,13 @@ Telegram works immediately; WhatsApp needs a Meta Business app and a pre-approve
 3. **Business Settings → System Users** → create → *Generate token* with `whatsapp_business_messaging` → this is your permanent `WHATSAPP_TOKEN`.
 4. **Message templates** → Create → category **Utility** → name `status_alert` → language `en` → body:
    `Is It Down, India? alert: {{1}}`
-5. Set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_TEMPLATE`, `WHATSAPP_VERIFY_TOKEN`; rebuild; deploy.
-6. **Webhook**: WhatsApp → Configuration → Callback URL `https://YOURDOMAIN.com/api/whatsapp/webhook`, Verify Token = `WHATSAPP_VERIFY_TOKEN` → subscribe to `messages`.
-7. Put a user's number in **Settings → WhatsApp number** (`919812345678`, country code, no `+`), set a subscription channel to `whatsapp`, trigger an alert.
+5. Set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_TEMPLATE`; rebuild; deploy.
+6. Put a user's number in **Settings → WhatsApp number** (`919812345678`, country code, no `+`), set a subscription channel to `whatsapp`, trigger an alert.
 
+(There used to be a `/api/whatsapp/webhook` endpoint here for inbound phone-number
+linking, but nothing in the UI ever exposed that flow to users, so it was dead
+code and has been removed. WhatsApp alert delivery above is unaffected —
+it only needs the token/phone-ID/template env vars, not the webhook.)
 WhatsApp only allows free-form replies inside 24h of the user messaging you; outside that you must use an approved template — which is why the code always sends `type: "template"`. `channel = 'sms'` is log-only until you add a provider.
 
 ---
