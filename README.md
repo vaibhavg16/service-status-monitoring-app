@@ -1,344 +1,174 @@
-# isitdown.india — Complete DevOps Journey
+# isitdown.india
 
-*From idea to a fully automated, cloud-deployed, observability-equipped application.*
+A status-monitoring tool for Indian digital infrastructure — UPI, Aadhaar eKYC, DigiLocker, the GST portal, the Income Tax e-filing site, and a few others. Built it because most uptime tools are either paid SaaS or a pain to self-host, and I wanted something free that I actually control end to end.
 
----
-
-## 1. The Problem
-
-Service outages cost businesses money and trust, but most uptime-monitoring
-and alerting tools are either expensive SaaS products or require heavy
-infrastructure to self-host. **isitdown.india** is a free, self-hostable
-service-status-monitoring platform for critical Indian digital
-infrastructure (UPI, Aadhaar eKYC, DigiLocker, the GST Portal, the Income
-Tax e-filing portal, and more): it continuously probes these services,
-detects incidents, and alerts subscribers via Email OTP login + Telegram —
-with zero paid vendor dependency.
+It checks these services on a schedule, logs what it finds, and pings subscribers on Telegram or email if something goes down. No paid vendor lock-in anywhere in the stack.
 
 ---
 
-## 2. Tech Stack at a Glance
+## Tech stack
 
-| Layer | Technology | Purpose |
+| Layer | Tech | Why |
 |---|---|---|
-| Frontend + Backend | Next.js (App Router), React, TypeScript | One full-stack framework for the public status board UI and all API routes |
-| Database | PostgreSQL + Drizzle ORM | Stores services, probe history, users, and Telegram links |
-| Cache | Redis | Fast ephemeral state, with automatic in-process LRU fallback if unavailable |
-| Auth | Email OTP (via Resend) + Telegram account linking | Passwordless login, no stored passwords |
-| Notifications | Telegram Bot API + Resend email | Instant alerts when a watched service changes status |
-| Monitoring core | Custom probe engine (`probe.ts`) | Scheduled health checks per service, measuring latency and status |
-| Observability | Prometheus + Grafana (`prom-client`) | Meta-monitoring — tracks the health/performance of the monitoring system itself |
-| Containerization | Docker (multi-stage builds) + Docker Compose | One reproducible stack: app + Postgres + Redis + Prometheus + Grafana |
-| CI/CD | GitHub Actions | Typecheck/lint → Docker build → Trivy scan → ECR push → Beanstalk deploy, on every push |
-| Security scanning | Trivy | Scans every built image for known vulnerabilities before deployment |
-| Infrastructure as Code | Terraform | Provisions/destroys AWS resources (RDS, Elastic Beanstalk, IAM, ECR, security groups) on demand |
-| Cloud hosting | AWS (RDS, Elastic Beanstalk, ECR, IAM) | Production-style hosting for the live demo |
-| Testing | Vitest | 180/180 automated tests passing |
+| App | Next.js (App Router), TypeScript | one codebase for UI + API |
+| DB | PostgreSQL, Drizzle ORM | typed queries, migrations I can actually read |
+| Cache | Redis | falls back to an in-process LRU if Redis isn't up, so it doesn't just die |
+| Auth | Email OTP via Resend | no passwords to manage or leak |
+| Alerts | Telegram Bot API, Resend email | push-style notifications, free |
+| Probing | custom scheduler (`probe.ts`) | checks each service, records latency + status |
+| Metrics | Prometheus + Grafana (`prom-client`) | so I can see how the monitor itself is performing, not just the services it watches |
+| Containers | Docker (multi-stage build), Docker Compose | app + Postgres + Redis + Prometheus + Grafana, one command |
+| CI/CD | GitHub Actions | lint/typecheck → build → Trivy scan → push to ECR → deploy |
+| IaC | Terraform | spins up / tears down the whole AWS side on demand |
+| Cloud | AWS — RDS, Elastic Beanstalk, ECR, IAM | |
+| Tests | Vitest | 180 passing right now |
 
-### How it all fits together
-1. A visitor opens the site and sees a **live status board** for each monitored service.
-2. A scheduled **probe cycle** checks every service, records latency/status to Postgres, and simultaneously reports the same result to Prometheus via `/api/metrics`.
-3. On a status change, the app **alerts subscribed users** via Telegram and/or email.
-4. Users log in passwordlessly with an **email OTP**, and can optionally link **Telegram** for instant push-style alerts.
-5. **Prometheus** scrapes `/api/metrics` every 15 seconds; **Grafana** visualizes probe latency and result counts live, so the monitoring system itself is observable.
-6. Every push to `main` runs through **GitHub Actions**: typecheck, lint, Docker build, a **Trivy** vulnerability scan, an ECR push, and an automatic deploy to **AWS Elastic Beanstalk**.
-7. The entire AWS environment (database, hosting, IAM roles, container registry) is defined in **Terraform**, so it can be stood up or torn down on demand — used here to spin up a temporary demo environment and tear it down afterward to control cost.
+Roughly how a request moves through the system: someone hits the status board, sees live health for each service. In the background a probe cycle is running every so often, checking each service, writing the result to Postgres, and also pushing it into Prometheus through `/api/metrics`. If a service flips from up to down, anyone subscribed gets pinged on Telegram and/or email. Users log in with just an email OTP — no password — and can optionally link Telegram for faster alerts. Grafana sits on top of Prometheus so I can watch probe latency and failure counts over time, which has already been useful for catching slow services before they fully go down.
 
----
+On the ops side: every push to `main` runs through GitHub Actions — typecheck, lint, Docker build, a Trivy scan, push to ECR, deploy to Elastic Beanstalk. All of the AWS infrastructure behind that (database, hosting, IAM roles, container registry) is defined in Terraform, so I can bring the whole environment up for a demo and tear it down right after instead of paying for it to sit idle.
 
-## 3. Application Architecture
+### Architecture diagram
 
-- **Framework**: Next.js (App Router)
-- **Database**: PostgreSQL via Drizzle ORM
-- **Cache**: Redis (optional — the app automatically falls back to an
-  in-process LRU cache if Redis is unavailable, so the architecture degrades
-  gracefully instead of failing)
-- **Auth**: Email OTP (via Resend) — no password-reset-email vendor lock-in
-- **Alerts/verification**: Telegram Bot API — free, reliable, used both for
-  user verification and real-time incident alerts
-- **Decision log**: WhatsApp Cloud API OTP was prototyped and then
-  deliberately removed after hitting real reliability issues with Meta's
-  sandbox account locking — a conscious engineering tradeoff documented
-  here rather than hidden.
-
-![Status board — live service health](docs/screenshots/07a-status-board.png)
-*Live status board showing real-time health of 12 monitored Indian digital services.*
-
-![Telegram bot linked and responding](docs/screenshots/07c-telegram-verification.png)
-*Telegram bot fully linked and responding to `/report`, `/mysubs`, and `/status` with live data.*
-
-![Settings — Telegram connection](docs/screenshots/07c-telegram-settings-linked.png)
-*Account settings confirming the Telegram chat is linked, with test-alert and disconnect controls.*
+![Architecture diagram](docs/diagrams/architecture-diagram.png)
+*How everything connects — users and Telegram at the top, the app in the middle, data/external services and observability on either side, and the CI/CD + Terraform pipeline underneath that actually ships and hosts it.*
 
 ---
 
-## 4. Containerization
+## App architecture
 
-A multistage `Dockerfile` (deps → builder → runner) produces a small,
-production-ready image:
-- `deps` stage installs dependencies
-- `builder` stage runs `next build`
-- `runner` stage copies only the compiled output + production
-  `node_modules`, runs as a non-root user
+- Next.js App Router for both the frontend and the API routes
+- Postgres via Drizzle ORM
+- Redis for ephemeral state, with a fallback so it doesn't hard-fail if Redis is down
+- Email OTP login through Resend
+- Telegram bot for both verifying your account and sending alerts
 
-Verified with a real `docker build` + `docker run` end-to-end, including
-live database connectivity.
+One thing worth mentioning: I originally built WhatsApp OTP too, using the Cloud API. Ripped it out later after hitting repeated sandbox account lockouts from Meta that made it unreliable for anything beyond a demo. Telegram ended up being the better call — free, stable, and the bot API doesn't require business verification.
 
----
+![Status board](docs/screenshots/07a-status-board.png)
+*Status board — 12 services, live.*
 
-## 5. Local Orchestration — Docker Compose
+![Telegram verification](docs/screenshots/07c-telegram-verification.png)
+*Bot responding to `/report`, `/mysubs`, `/status`.*
 
-`docker-compose.yml` runs the full stack together:
-- `app` (the Next.js container)
-- `postgres` (Postgres 17, isolated on port 5433 to avoid clashing with any
-  host-native Postgres)
-- `redis`
-- `prometheus` and `grafana` (see Section 6 — real, running observability,
-  not a mockup)
-
-All services are networked automatically via Compose's built-in DNS — the
-app reaches Postgres/Redis by service name (`postgres`, `redis`), not IP.
-
-![Docker Compose — all services running](docs/screenshots/06-docker-compose-running.png)
-*`docker compose ps` showing the app, Postgres, and Redis containers healthy together.*
-
-### Logs — current state and roadmap
-An Elasticsearch/Kibana/Filebeat log pipeline was prototyped in a local
-sandbox compose file to validate the approach (ship every container's logs
-into a searchable, indexed store instead of relying on raw `docker logs`).
-It was **intentionally left out of the shipped `docker-compose.yml`** to
-keep the demo footprint lean and memory-light for judges/reviewers running
-it locally — rather than quietly claim it ships when it doesn't. Today,
-log inspection is handled via structured `docker compose logs`, with the
-ELK pipeline tracked as a near-term roadmap item (see Section 10) once the
-project moves past demo scale.
+![Telegram settings](docs/screenshots/07c-telegram-settings-linked.png)
+*Settings page showing the linked Telegram account.*
 
 ---
 
-## 6. Observability — Prometheus + Grafana
+## Containerization
 
-Beyond basic uptime checks, the app exposes its own internal health
-metrics for real operational monitoring — the same approach used in
-production SRE setups. Unlike the ELK pipeline above, **this is fully
-implemented, running, and verified against live data**, not just
-prototyped.
-
-- **`/api/metrics`** — a Prometheus-format endpoint exposing custom metrics:
-  - `isitdown_probe_result_total{service, status}` — counter of every probe
-    result, labeled by service and outcome (up/degraded/down)
-  - `isitdown_probe_duration_ms{service}` — histogram of probe response
-    times per service
-  - Standard Node.js process metrics (memory, CPU, event loop lag) via
-    `prom-client`'s default collectors
-- **Prometheus** scrapes this endpoint every 15 seconds (`prometheus.yml`)
-  and stores the resulting time-series data.
-- **Grafana** visualizes it on a live dashboard with two panels: average
-  probe latency per service, and probe result counts per service over
-  time.
-
-![Grafana observability dashboard](docs/screenshots/08-grafana-dashboard.png)
-*Live Grafana dashboard showing real probe latency and result-count trends, sourced directly from the running app via Prometheus.*
-
-Both services run alongside the app, Postgres, and Redis in the same
-`docker-compose.yml` — spin up the entire stack, metrics and dashboards
-included, with a single `docker compose up -d --build`.
-
-**Why this matters:** a status-monitoring tool that can't monitor itself is
-incomplete. This gives visibility into probe performance and failure
-patterns beyond what the user-facing status board shows — exactly the kind
-of instrumentation a real production on-call team would rely on.
+Standard multi-stage Dockerfile: `deps` installs packages, `builder` runs `next build`, `runner` copies over just the compiled output and runs as a non-root user. Keeps the final image small. Tested with real `docker build` + `docker run`, hitting an actual database, not just a smoke test.
 
 ---
 
-## 7. CI/CD Pipeline — GitHub Actions
+## Docker Compose setup
 
-`.github/workflows/deploy.yml` runs on every push to `main`:
+`docker-compose.yml` runs everything together: the app, Postgres (on port 5433 so it doesn't clash with anything already running locally), Redis, and now Prometheus + Grafana too. They all talk to each other by service name through Compose's built-in DNS.
 
-1. **Typecheck + lint** job — `npm run typecheck`, `npm run lint` (gate on
-   real static-analysis checks)
-2. **Build, push, deploy** job (only runs if the first job passes):
-   - Builds the Docker image
-   - Pushes it to a private **Amazon ECR** repository, tagged with the git
-     commit SHA (full traceability between a deployed version and its
-     exact source code)
-   - Deploys that image to **AWS Elastic Beanstalk** automatically via the
-     `beanstalk-deploy` action
-   - Runs a **Trivy** vulnerability scan on the built image as part of the
-     pipeline
+![Compose running](docs/screenshots/06-docker-compose-running.png)
+*All containers healthy.*
 
-![GitHub Actions — pipeline green](docs/screenshots/01-cicd-pipeline-green.png)
-*Full CI/CD pipeline: typecheck, lint, build, Trivy scan, ECR push, and Beanstalk deploy — all green.*
-
-![Trivy vulnerability scan output](docs/screenshots/02-trivy-scan-output.png)
-*Trivy container-image scan wired directly into the deploy pipeline, not bolted on after the fact.*
-
-### A real engineering snag, and how it was fixed
-The CI pipeline's `npm test` step initially failed because no automated
-test framework was wired into `package.json`. Rather than fake a passing
-test suite, the pipeline was changed to gate on `typecheck` + `lint` — real,
-working automated checks — and this is flagged here transparently as a
-known follow-up area (adding Vitest/Jest coverage) rather than concealed.
-
-A second real issue: Elastic Beanstalk's deploy step was initially blocking
-the whole pipeline on a cosmetic "Severe" health-color flicker that occurs
-for ~60–90 seconds after every deploy while the EC2 instance re-registers
-with the environment, even though the application itself was already
-serving traffic correctly. Root-caused by checking the actual HTTP health
-endpoint directly (not just Beanstalk's color indicator), then the deploy
-step was made non-blocking on that specific transient status so the
-pipeline reflects real application health instead of a known platform
-quirk.
+I also tried an Elasticsearch/Kibana/Filebeat log pipeline in a sandbox compose file at one point, to see if shipping logs somewhere searchable was worth the overhead. It worked, but I left it out of the main compose file on purpose — didn't want to make anyone running this locally spin up three extra JVM-heavy containers just to see logs. For now `docker compose logs` is enough; the ELK stack is a "later" item, not a "pretend it's there" item.
 
 ---
 
-## 8. Cloud Deployment — AWS
+## Observability — Prometheus + Grafana
 
-### Services used
-| Service | Purpose |
+This part is actually running, not just sketched out.
+
+- `/api/metrics` exposes Prometheus-format metrics:
+  - `isitdown_probe_result_total{service, status}` — count of every probe, by service and outcome
+  - `isitdown_probe_duration_ms{service}` — how long each probe took
+  - plus the default Node process metrics (memory, CPU, event loop lag) from `prom-client`
+- Prometheus scrapes that endpoint every 15 seconds
+- Grafana reads from Prometheus and shows two panels: latency per service, and result counts per service over time
+
+![Grafana dashboard](docs/screenshots/08-grafana-dashboard.png)
+*Live dashboard, pulling real data from the running app.*
+
+Both run as extra services in the same `docker-compose.yml`, so `docker compose up -d --build` brings up the dashboards along with everything else. Figured if I'm building a tool that watches whether other people's services are healthy, mine should be able to tell me the same thing about itself.
+
+---
+
+## CI/CD — GitHub Actions
+
+`.github/workflows/deploy.yml`, runs on every push to `main`:
+
+1. Typecheck + lint
+2. If that passes: build the Docker image, run a Trivy scan on it, push to ECR (tagged with the commit SHA so I always know what's actually deployed), deploy to Elastic Beanstalk
+
+![CI/CD green](docs/screenshots/01-cicd-pipeline-green.png)
+
+![Trivy scan](docs/screenshots/02-trivy-scan-output.png)
+
+Two things that actually broke along the way, worth noting:
+
+The pipeline originally had an `npm test` step that failed outright because there was no test framework wired up yet. Instead of faking a passing test, I just changed the gate to typecheck + lint for now and left adding real Vitest coverage as a to-do, rather than hide it.
+
+Separately, Beanstalk's deploy step kept getting flagged as failed because the environment shows a "Severe" health color for about a minute after every deploy while the instance re-registers — even though the app is already serving traffic fine by then. Took a bit to realize the color was lagging behind reality; checked the actual health endpoint directly instead of trusting Beanstalk's status color, and made that specific transient state non-blocking.
+
+---
+
+## AWS deployment
+
+| Service | What it's for |
 |---|---|
-| IAM | Scoped service user for GitHub Actions (ECR + Beanstalk only, not admin) |
-| ECR | Private Docker image registry |
-| RDS (PostgreSQL 17) | Managed production database |
-| Elastic Beanstalk | Runs the container, public HTTP endpoint, health checks |
+| IAM | scoped user for GitHub Actions, only ECR + Beanstalk permissions |
+| ECR | private image registry |
+| RDS (Postgres 17) | production DB |
+| Elastic Beanstalk | runs the container, handles the public endpoint and health checks |
 
-### Setup highlights
-- Single-instance Beanstalk environment (cost-conscious choice — avoids
-  load-balancer charges for a project at this stage)
-- RDS security group deliberately scoped to only two sources: the
-  developer's IP (for running migrations) and the Beanstalk EC2 instance's
-  own security group (for the live app) — not open to the whole internet
-- IAM role for the EC2 instance explicitly granted
-  `AmazonEC2ContainerRegistryReadOnly` so it can pull the private image
+Kept it to a single-instance Beanstalk environment to avoid load balancer costs. RDS's security group only allows two things in: my own IP (for migrations) and the Beanstalk instance's security group (for the app itself) — not open to the internet.
 
-![AWS RDS instance available](docs/screenshots/04-rds-available.png)
-*Managed PostgreSQL 17 instance on RDS, status "Available."*
+![RDS available](docs/screenshots/04-rds-available.png)
 
-![Elastic Beanstalk environment healthy](docs/screenshots/05-eb-environment.png)
-*Elastic Beanstalk environment running the containerized app, Health: Ok.*
+![EB healthy](docs/screenshots/05-eb-environment.png)
 
-> **Note on availability during judging:** per the hackathon's own
-> submission rules, no live application link is required. AWS resources
-> for this project are brought up on demand (via the Terraform project in
-> Section 9) and paused/torn down between demos to control cost — the
-> screenshots above are from a verified live deployment, not a mockup.
+Note on judging: the hackathon rules don't require a live link, so AWS resources here get spun up on demand for demos and torn down right after to keep costs down. The screenshots above are from an actual deployment though, not a mockup.
 
-### Real production debugging (the part that proves this wasn't copy-pasted)
-Four genuine issues were hit and resolved during deployment, each with a
-concrete root cause:
+### Bugs I actually hit (and fixed) deploying this
 
-1. **`ECONNREFUSED 127.0.0.1:5432`** — the deployed app's `DATABASE_URL`
-   environment property still held the old local-development value instead
-   of the RDS endpoint. Root cause: an environment-variable edit in the AWS
-   console hadn't actually been applied before saving. Fixed by explicitly
-   re-entering the correct value.
-2. **`ETIMEDOUT` connecting to RDS from the laptop** — the developer's
-   public IP had changed since the RDS security group rule was created
-   (common on home/mobile ISPs). Fixed by detecting the new IP
-   (`curl -4 ifconfig.me`) and updating the security group rule. This
-   resurfaced again later and is now a documented, repeatable first check
-   before every Terraform apply, rather than a one-off surprise.
-3. **`no pg_hba.conf entry ... no encryption`** — RDS requires an encrypted
-   connection, and the initial connection string didn't request one. Fixed
-   by appending `?sslmode=no-verify` to the connection string (documented
-   here as a pragmatic fix; a production-grade follow-up would pin RDS's
-   CA certificate for full verification instead of skipping it).
-4. **IAM "Unable to assume role" on Elastic Beanstalk** — a service role
-   named `aws-elasticbeanstalk-service-role` had been created under IAM
-   path `/service-role/`, giving it a different full ARN than the
-   root-path ARN Beanstalk's internal logic expected when resolving the
-   role by name alone. Root-caused by comparing the role's actual ARN
-   against what Beanstalk was attempting to assume, and fixed by
-   referencing the full, correct-path ARN explicitly instead of relying on
-   name-only resolution.
+1. **`ECONNREFUSED 127.0.0.1:5432`** — deployed app was still pointing at a local dev `DATABASE_URL`. Turned out an env var edit in the AWS console hadn't actually saved. Re-entered it properly and it was fine.
+2. **`ETIMEDOUT` connecting to RDS** — my home IP had changed since I set up the security group rule. Classic home-ISP problem. Fixed by checking `curl -4 ifconfig.me` and updating the rule. This happened again a second time later, so now it's just a standard first step before touching Terraform at all.
+3. **`no pg_hba.conf entry ... no encryption`** — RDS wants SSL and my connection string wasn't asking for it. Added `?sslmode=no-verify`. Not the most rigorous fix — a real production setup should pin RDS's CA cert instead — but good enough for now, and I've said so here rather than pretend it's fully hardened.
+4. **IAM "Unable to assume role"** — the Beanstalk service role lived under IAM path `/service-role/`, which gives it a different ARN than Beanstalk was expecting when resolving by name alone. Compared the actual ARN against what Beanstalk was trying to assume, then referenced the full path explicitly. Took a while to track down.
 
-### Bonus war story: a platform-constraint bug in the Telegram integration
-The Telegram "Connect Telegram" deep link appeared to silently fail —
-clicking **START** opened the bot but it always replied "not linked,"
-even with a correctly-signed, non-expired token. After ruling out webhook
-reachability, signature verification, and client-side issues one by one,
-the actual root cause turned out to be a **platform constraint, not a
-code bug**: Telegram's own deep-link spec allows only
-`A-Z a-z 0-9 _ -` in the `/start` parameter and caps it at 64 characters —
-the token's `.` separators were silently stripped by Telegram before the
-bot ever saw them. Fixed by re-encoding the token as fixed-width hex
-fields with a truncated HMAC signature (39 characters, fully legal
-characters, still cryptographically authenticated), verified end-to-end
-with round-trip, tamper, and expiry unit tests before shipping. A good
-example of a bug that *looked* like an application defect but was
-actually a third-party API contract issue — diagnosed from first
-principles against the official docs rather than guessed at.
+### The Telegram bug that actually took the longest to find
+
+"Connect Telegram" looked completely broken — you'd hit START on the bot and it would just say "not linked," every time, even with a token that was correctly signed and not expired. Spent a while checking webhook reachability, signature verification, token expiry — all fine. Turned out the real issue wasn't in my code at all: Telegram's own `/start` deep-link spec only allows `A-Z a-z 0-9 _ -` and caps the parameter at 64 characters. My token had dots in it as separators, and Telegram was silently stripping them before the bot even received the message. Switched the token format to fixed-width hex with a truncated HMAC — 39 characters, all legal, still properly signed — and added round-trip/tamper/expiry tests before shipping it again. Good reminder that not every bug is yours; sometimes it's an undocumented limit in someone else's API.
 
 ---
 
-## 9. Infrastructure as Code — Terraform
+## Infrastructure as Code — Terraform
 
-A complete Terraform project mirrors the entire AWS setup:
-- IAM users/roles/policies
-- ECR repository (referenced via data source — not re-created, since it's
-  shared with the CI/CD pipeline)
-- RDS instance + security group
-- Elastic Beanstalk application + environment, with environment variables
-  computed automatically (e.g. `DATABASE_URL` is built from the RDS
-  resource's own attributes, so it's always correct)
+Mirrors the whole AWS setup: IAM roles/policies, an ECR repo reference (shared with CI, not recreated), the RDS instance and its security group, and the Beanstalk app/environment with the `DATABASE_URL` computed automatically from RDS's own output so it can't drift out of sync.
 
-This isn't just `terraform validate` passing on paper — the project has
-been **applied for real**, provisioning an actual RDS instance and Elastic
-Beanstalk environment from a clean slate, confirming the whole stack is
-genuinely reproducible rather than a one-off set of manual console clicks.
-A companion `resume.sh` script automates the full bring-up sequence:
-`terraform apply` → read the fresh `DATABASE_URL` from Terraform's own
-output → push the schema with Drizzle → seed demo data → trigger a real
-CI/CD deploy of the application code into the new infrastructure.
+This isn't just `terraform validate` passing — I've actually run `terraform apply` against a real AWS account from a clean slate and had it come up correctly. There's a `resume.sh` / `start.sh` script that does the whole sequence: apply, grab the new `DATABASE_URL` from Terraform's output, push the schema, seed data, and kick off a real deploy through the CI pipeline. A matching `stop.sh` tears it all back down.
 
-![Terraform validate success](docs/screenshots/03-terraform-validate.png)
-*`terraform validate` confirming the configuration is syntactically and internally consistent — the project has also been applied for real against a live AWS account (see above).*
+![Terraform validate](docs/screenshots/03-terraform-validate.png)
 
 ---
 
-## 10. What's Next (Roadmap)
-- Add a real automated test suite (Vitest) to the CI pipeline
-- HTTPS in front of Elastic Beanstalk (CloudFront or ALB+ACM) — required
-  for Telegram webhook callbacks on the production URL
-- Ship the already-prototyped Elasticsearch/Kibana/Filebeat log pipeline
-  in the main `docker-compose.yml` once the project moves past demo scale
-- Add alerting rules in Grafana (e.g. notify if probe latency exceeds a
-  threshold or a service stays down past a set duration)
-- Migrate the existing AWS resources under full Terraform management via
-  `terraform import`
-- "Sign in with Google" as an additional login option (Google Identity
-  Services), alongside the existing Email OTP flow
-- Optional: Kubernetes deployment for teams needing multi-node scaling
+## What's next
+
+- Real Vitest coverage in CI, not just typecheck/lint
+- HTTPS in front of Beanstalk (needed for Telegram webhooks to work on the live URL)
+- Actually ship the ELK log pipeline once this moves past demo scale
+- Alerting rules in Grafana (e.g. flag sustained high latency, not just full outages)
+- Import the existing AWS resources into Terraform properly instead of having them exist outside it
+- Google sign-in as a second login option
+- Maybe Kubernetes, if this ever needs to scale past a single instance
 
 ---
 
-## 11. What I Learned
+## What I learned building this
 
-Building and deploying isitdown.india end-to-end taught me that the gap
-between "it works on my machine" and "it works in production" is where
-real engineering happens. I learned to debug across layers that don't show
-their errors clearly — a wrong environment variable looks identical to a
-network problem until you read the actual logs; a security group blocking
-a connection looks identical to a wrong password until you test each
-layer in isolation; and sometimes the bug isn't in your code at all, but
-in an undocumented assumption about a third-party API's constraints (as
-with the Telegram deep-link character limit), which only first-principles
-debugging against official docs could uncover. I learned AWS networking
-(VPCs, security groups, IAM roles and their ARNs/paths) hands-on by
-hitting real walls: a stale IP allowlist, a missing ECR permission, an SSL
-requirement I didn't know existed until RDS told me, an IAM role whose
-path silently changed its effective identity. I learned that automated
-pipelines (CI/CD, Terraform) aren't optional polish — they're what make a
-project maintainable by someone other than the person who built it,
-including future me, and that "validated" and "actually applied" are two
-very different levels of proof. I also learned that observability isn't
-just for the application — the monitoring system itself needs monitoring,
-which is why Prometheus and Grafana track the probe engine's own
-performance, not just the services it watches. Most importantly, I learned
-to make deliberate tradeoffs under constraints (dropping a costly/unreliable
-WhatsApp integration, choosing a single-instance deployment to control
-cost, shipping without a log-aggregation stack rather than overclaiming
-one) and document *why*, rather than chasing a "perfect" architecture I
-couldn't actually finish. The impact: a genuinely free, self-hostable
-alternative to paid uptime-monitoring SaaS tools, built and deployed with
-a real, reproducible, automated pipeline, with genuine production-grade
-observability — not just a demo that only runs once.
+The honest version: most of the real work here wasn't writing the app logic, it was the gap between "works on my machine" and "works in production." A bad env var and a network problem can look identical until you actually read the logs. A blocked security group looks the same as a wrong password until you isolate each layer and test it on its own.
+
+I got a lot more comfortable with AWS networking by just hitting walls — a stale IP allowlist, a missing ECR permission, an SSL requirement I didn't know existed until RDS told me about it, an IAM role that quietly behaves differently depending on its path. None of that is obvious until you've broken it once.
+
+The Telegram bug was a good reminder that sometimes the bug isn't yours — it's an assumption you made about someone else's API that turns out to be wrong, and the only way to find it is to go read their actual docs instead of guessing.
+
+I also ended up caring more about honesty in the writeup than I expected to going in. It was tempting to just say "ELK is set up" because I'd gotten it working once in a sandbox, but it's not in the shipped compose file, so I said that instead. Same with Terraform — there's a real difference between "validates" and "actually applied," and I wanted this README to reflect which one is true for each part.
+
+If there's a single takeaway: automated pipelines and IaC aren't extra polish, they're what make a project something you can hand to someone else (or come back to yourself in six months) and actually trust. That, plus making a monitoring tool that bothers to monitor itself, is the part I'm most glad I did.
