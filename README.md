@@ -29,7 +29,7 @@ On the ops side: every push to `main` runs through GitHub Actions — typecheck,
 
 ### Architecture diagram
 
-![Architecture diagram](docs/diagrams/architecture-diagram.png)
+![Architecture diagram](docs/screenshots/architecture-diagram.png)
 *How everything connects — users and Telegram at the top, the app in the middle, data/external services and observability on either side, and the CI/CD + Terraform pipeline underneath that actually ships and hosts it.*
 
 ---
